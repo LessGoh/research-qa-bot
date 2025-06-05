@@ -1,0 +1,71 @@
+app:
+  title: "🔬 Research Q&A Bot"
+  description: "AI-powered assistant for scientific research and document analysis"
+  version: "1.0.0"
+
+# LLM Settings
+llm:
+  provider: "openai"
+  model: "gpt-4"
+  temperature: 0.1
+  max_tokens: 2000
+  streaming: true
+
+# LlamaCloud Settings (вместо llamaindex)
+llamacloud:
+  use_cloud: true
+  pipeline_id: "207e89f0-702d-45ed-9c14-cc80060c2aef"
+  api_base: "https://api.cloud.llamaindex.ai/api/v1"
+  similarity_top_k: 5
+
+# Research-specific settings
+research:
+  modes:
+    - name: "analysis"
+      display_name: "📊 Deep Analysis"
+      description: "Comprehensive analysis of research topics"
+      temperature: 0.2
+      max_tokens: 3000
+      
+    - name: "facts"
+      display_name: "🔍 Fact Extraction"
+      description: "Extract key facts and definitions"
+      temperature: 0.1
+      max_tokens: 1500
+      
+    - name: "comparison"
+      display_name: "⚖️ Comparative Analysis"
+      description: "Compare different sources and findings"
+      temperature: 0.15
+      max_tokens: 2500
+      
+    - name: "summary"
+      display_name: "📝 Summarization"
+      description: "Summarize large volumes of documentation"
+      temperature: 0.2
+      max_tokens: 2000
+
+# Chat Settings
+chat:
+  max_history: 50
+  memory_type: "buffer"
+  save_history: false  # Отключаем для cloud деплоя
+
+# Output Formatting
+output:
+  structured_responses: true
+  include_sources: true
+  include_confidence: false
+  export_formats: ["json", "markdown", "text"]
+
+# UI Settings
+ui:
+  theme: "light"
+  sidebar_expanded: true
+  show_query_stats: true
+  show_source_preview: true
+  
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
