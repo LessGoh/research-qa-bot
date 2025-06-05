@@ -1,6 +1,6 @@
 """
 Main bot manager for Research Q&A Bot
-Minimal version without problematic imports
+Fixed version with LlamaCloud debugging
 """
 import os
 import time
@@ -107,6 +107,26 @@ class LlamaCloudRetriever:
         self.api_base = api_base
         self.logger = get_logger("LlamaCloudRetriever")
         
+        # Test connection immediately
+        self.connection_tested = False
+        self.connection_error = None
+        self._test_connection()
+        
+    def _test_connection(self):
+        """Test connection to LlamaCloud"""
+        try:
+            self.logger.info(f"Testing LlamaCloud connection to pipeline: {self.pipeline_id}")
+            
+            # Try a simple test query
+            test_nodes = self.retrieve("test connection", similarity_top_k=1)
+            self.connection_tested = True
+            self.logger.info(f"LlamaCloud connection successful - retrieved {len(test_nodes)} test nodes")
+            
+        except Exception as e:
+            self.connection_error = str(e)
+            self.logger.error(f"LlamaCloud connection test failed: {e}")
+            print(f"DEBUG: LlamaCloud connection failed - {e}")
+        
     def retrieve(self, query: str, similarity_top_k: int = 5) -> List[Dict[str, Any]]:
         """Retrieve documents from LlamaCloud pipeline"""
         try:
@@ -123,11 +143,21 @@ class LlamaCloudRetriever:
             }
             
             self.logger.info(f"Retrieving from LlamaCloud: {query[:50]}...")
+            print(f"DEBUG: Making request to {url}")
+            print(f"DEBUG: Headers: Authorization=Bearer {self.api_key[:10]}...")
+            print(f"DEBUG: Payload: {payload}")
             
             response = requests.post(url, json=payload, headers=headers, timeout=30)
-            response.raise_for_status()
+            
+            print(f"DEBUG: Response status: {response.status_code}")
+            print(f"DEBUG: Response headers: {dict(response.headers)}")
+            
+            if not response.ok:
+                print(f"DEBUG: Response text: {response.text}")
+                response.raise_for_status()
             
             data = response.json()
+            print(f"DEBUG: Response data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
             
             # Extract nodes from response
             nodes = data.get("nodes", [])
@@ -136,14 +166,21 @@ class LlamaCloudRetriever:
             return nodes
             
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"LlamaCloud API error: {e}")
+            error_msg = f"LlamaCloud API error: {e}"
+            self.logger.error(error_msg)
+            print(f"DEBUG: {error_msg}")
             raise
         except Exception as e:
-            self.logger.error(f"Error retrieving from LlamaCloud: {e}")
+            error_msg = f"Error retrieving from LlamaCloud: {e}"
+            self.logger.error(error_msg)
+            print(f"DEBUG: {error_msg}")
             raise
     
     def format_context(self, nodes: List[Dict[str, Any]]) -> str:
         """Format retrieved nodes into context string"""
+        if not nodes:
+            return "No relevant documents found."
+            
         context_parts = []
         
         for i, node in enumerate(nodes, 1):
@@ -172,7 +209,7 @@ class LlamaCloudRetriever:
 class ResearchBot:
     """
     Main Research Q&A Bot manager with LlamaCloud support
-    Minimal version without complex dependencies
+    Fixed version with debugging
     """
     
     def __init__(self, index_path: Optional[str] = None):
@@ -183,6 +220,14 @@ class ResearchBot:
         self._llm = None
         self._retriever = None
         self._chat_history = ChatHistory()
+        
+        # Debug info
+        self.debug_info = {
+            "initialization_time": time.time(),
+            "llm_status": "not_initialized",
+            "retriever_status": "not_initialized",
+            "errors": []
+        }
         
         # Load configuration
         self.research_modes = self._load_research_modes()
@@ -228,6 +273,7 @@ class ResearchBot:
         """Initialize all bot components"""
         try:
             self.logger.info("Initializing Research Bot...")
+            print("DEBUG: Starting bot initialization")
             
             # Initialize LLM
             self._initialize_llm()
@@ -236,44 +282,58 @@ class ResearchBot:
             self._setup_llamacloud()
             
             self.logger.info("Research Bot initialized successfully")
+            print("DEBUG: Bot initialization completed")
             
         except Exception as e:
-            self.logger.error(f"Failed to initialize bot: {e}")
-            print(f"Warning: Bot initialization failed: {e}")
+            error_msg = f"Failed to initialize bot: {e}"
+            self.logger.error(error_msg)
+            self.debug_info["errors"].append(error_msg)
+            print(f"DEBUG: {error_msg}")
+    
+    def _get_credential(self, key_name: str) -> Optional[str]:
+        """Get credential from Streamlit secrets or environment"""
+        value = None
+        
+        # Try Streamlit secrets first
+        try:
+            import streamlit as st
+            if hasattr(st, 'secrets') and key_name in st.secrets:
+                value = st.secrets[key_name]
+                print(f"DEBUG: Got {key_name} from Streamlit secrets")
+        except Exception as e:
+            print(f"DEBUG: Failed to get {key_name} from Streamlit secrets: {e}")
+        
+        # Fall back to environment variable
+        if not value:
+            value = os.getenv(key_name)
+            if value:
+                print(f"DEBUG: Got {key_name} from environment variable")
+            else:
+                print(f"DEBUG: {key_name} not found in environment")
+        
+        return value
     
     def _initialize_llm(self):
         """Initialize OpenAI LLM"""
         try:
-            # Get API key from Streamlit secrets or environment
-            api_key = None
+            print("DEBUG: Initializing LLM...")
             
-            # Try Streamlit secrets first
-            try:
-                import streamlit as st
-                if hasattr(st, 'secrets') and 'OPENAI_API_KEY' in st.secrets:
-                    api_key = st.secrets["OPENAI_API_KEY"]
-            except:
-                pass
-            
-            # Fall back to environment variable
-            if not api_key:
-                api_key = os.getenv("OPENAI_API_KEY")
+            # Get API key
+            api_key = self._get_credential("OPENAI_API_KEY")
             
             if not api_key:
                 raise ValueError("OpenAI API key not found")
             
             # Get model settings
-            model = os.getenv("OPENAI_MODEL", "gpt-4")
-            temperature = float(os.getenv("OPENAI_TEMPERATURE", "0.1"))
+            model = self._get_credential("OPENAI_MODEL") or "gpt-4"
+            temperature_str = self._get_credential("OPENAI_TEMPERATURE") or "0.1"
             
-            # Try Streamlit secrets for model settings
             try:
-                import streamlit as st
-                if hasattr(st, 'secrets'):
-                    model = st.secrets.get("OPENAI_MODEL", model)
-                    temperature = float(st.secrets.get("OPENAI_TEMPERATURE", temperature))
+                temperature = float(temperature_str)
             except:
-                pass
+                temperature = 0.1
+            
+            print(f"DEBUG: Creating OpenAI client with model: {model}, temperature: {temperature}")
             
             self._llm = SimpleOpenAI(
                 api_key=api_key,
@@ -282,10 +342,17 @@ class ResearchBot:
                 max_tokens=2000
             )
             
+            self.debug_info["llm_status"] = "initialized"
             self.logger.info(f"LLM initialized: {model}")
+            print(f"DEBUG: LLM initialized successfully")
             
         except Exception as e:
-            self.logger.error(f"Failed to initialize LLM: {e}")
+            error_msg = f"Failed to initialize LLM: {e}"
+            self.logger.error(error_msg)
+            self.debug_info["llm_status"] = f"error: {e}"
+            self.debug_info["errors"].append(error_msg)
+            print(f"DEBUG: {error_msg}")
+            
             # Create a mock LLM
             class MockLLM:
                 def __init__(self):
@@ -294,32 +361,22 @@ class ResearchBot:
                     self.model = "mock-llm"
                 
                 def complete(self, prompt):
-                    return f"Mock response to: {prompt[:100]}... (LLM not available)"
+                    return f"Mock response: LLM not available - {prompt[:50]}..."
             
             self._llm = MockLLM()
-            print("Warning: Using mock LLM - OpenAI integration failed")
+            print("DEBUG: Using mock LLM")
     
     def _setup_llamacloud(self):
         """Setup LlamaCloud retriever"""
         try:
-            # Get credentials from Streamlit secrets or environment
-            api_key = None
-            pipeline_id = None
+            print("DEBUG: Setting up LlamaCloud...")
             
-            # Try Streamlit secrets first
-            try:
-                import streamlit as st
-                if hasattr(st, 'secrets'):
-                    api_key = st.secrets.get("LLAMA_CLOUD_API_KEY")
-                    pipeline_id = st.secrets.get("LLAMA_CLOUD_PIPELINE_ID")
-            except:
-                pass
+            # Get credentials
+            api_key = self._get_credential("LLAMA_CLOUD_API_KEY")
+            pipeline_id = self._get_credential("LLAMA_CLOUD_PIPELINE_ID")
             
-            # Fall back to environment variables
-            if not api_key:
-                api_key = os.getenv("LLAMA_CLOUD_API_KEY")
-            if not pipeline_id:
-                pipeline_id = os.getenv("LLAMA_CLOUD_PIPELINE_ID")
+            print(f"DEBUG: API key present: {bool(api_key)}")
+            print(f"DEBUG: Pipeline ID: {pipeline_id}")
             
             if not api_key:
                 raise ValueError("LlamaCloud API key not found")
@@ -336,20 +393,32 @@ class ResearchBot:
                 api_base="https://api.cloud.llamaindex.ai/api/v1"
             )
             
-            # Test connection
-            test_nodes = self._retriever.retrieve("test query", similarity_top_k=1)
-            self.logger.info(f"LlamaCloud connection successful, test returned {len(test_nodes)} nodes")
+            # Check if connection test passed
+            if self._retriever.connection_tested:
+                self.debug_info["retriever_status"] = "connected"
+                print("DEBUG: LlamaCloud retriever connected successfully")
+            else:
+                self.debug_info["retriever_status"] = f"connection_failed: {self._retriever.connection_error}"
+                print(f"DEBUG: LlamaCloud connection test failed: {self._retriever.connection_error}")
             
         except Exception as e:
-            self.logger.error(f"Failed to setup LlamaCloud: {e}")
+            error_msg = f"Failed to setup LlamaCloud: {e}"
+            self.logger.error(error_msg)
+            self.debug_info["retriever_status"] = f"error: {e}"
+            self.debug_info["errors"].append(error_msg)
             self._retriever = None
-            print(f"Warning: LlamaCloud setup failed: {e}")
+            print(f"DEBUG: {error_msg}")
     
     def _query_with_cloud(self, query_text: str, mode: str) -> str:
         """Query using LlamaCloud retriever and direct LLM call"""
         try:
+            print(f"DEBUG: Processing query with cloud: {query_text[:50]}...")
+            
             if not self._retriever:
                 return "LlamaCloud retriever not available. Please check your configuration."
+            
+            if not self._retriever.connection_tested:
+                return f"LlamaCloud connection failed: {self._retriever.connection_error}"
             
             # Get similarity_top_k based on mode
             similarity_k = 5
@@ -358,11 +427,15 @@ class ResearchBot:
             elif mode == "comparison":
                 similarity_k = 6
             
+            print(f"DEBUG: Retrieving {similarity_k} nodes for mode {mode}")
+            
             # Retrieve relevant documents
             nodes = self._retriever.retrieve(query_text, similarity_top_k=similarity_k)
             
             if not nodes:
                 return "No relevant information found in the knowledge base."
+            
+            print(f"DEBUG: Retrieved {len(nodes)} nodes")
             
             # Format context
             context = self._retriever.format_context(nodes)
@@ -387,13 +460,19 @@ Context from research documents:
 
 Please provide a comprehensive answer based on the context above. If the context doesn't contain enough information to fully answer the question, please indicate what information is missing."""
             
+            print(f"DEBUG: Sending prompt to LLM (length: {len(full_prompt)} chars)")
+            
             # Get response from LLM
             response = self._llm.complete(full_prompt)
+            
+            print(f"DEBUG: Got response from LLM (length: {len(str(response))} chars)")
             
             return str(response)
             
         except Exception as e:
-            self.logger.error(f"Error in cloud query: {e}")
+            error_msg = f"Error in cloud query: {e}"
+            self.logger.error(error_msg)
+            print(f"DEBUG: {error_msg}")
             return f"I apologize, but I encountered an error processing your query: {str(e)}"
     
     @measure_time
@@ -402,6 +481,8 @@ Please provide a comprehensive answer based on the context above. If the context
         start_time = time.time()
         
         try:
+            print(f"DEBUG: Processing query: {query_text[:50]}... in mode: {mode}")
+            
             # Validate mode
             if mode not in self.research_modes:
                 mode = "analysis"  # Fallback
@@ -442,10 +523,14 @@ Please provide a comprehensive answer based on the context above. If the context
             # Log the query
             log_query(query_text, processing_time, mode)
             
+            print(f"DEBUG: Query processed successfully in {processing_time:.2f}s")
+            
             return result
             
         except Exception as e:
+            error_msg = f"process_query error: {e}"
             log_error(e, f"process_query(mode={mode})")
+            print(f"DEBUG: {error_msg}")
             
             error_response = ErrorResponse(
                 error_type=type(e).__name__,
@@ -472,6 +557,8 @@ Please provide a comprehensive answer based on the context above. If the context
     def chat(self, message: str, mode: str = "analysis") -> str:
         """Chat with the bot"""
         try:
+            print(f"DEBUG: Processing chat message: {message[:50]}...")
+            
             # Update LLM for mode
             if mode in self.research_modes:
                 self._update_llm_for_mode(self.research_modes[mode])
@@ -488,10 +575,12 @@ Please provide a comprehensive answer based on the context above. If the context
             return response_text
             
         except Exception as e:
+            error_msg = f"Chat error: {e}"
             log_error(e, "chat")
-            error_msg = f"Sorry, I encountered an error: {str(e)}"
-            self._chat_history.add_message("assistant", error_msg)
-            return error_msg
+            print(f"DEBUG: {error_msg}")
+            error_response = f"Sorry, I encountered an error: {str(e)}"
+            self._chat_history.add_message("assistant", error_response)
+            return error_response
     
     def _chat_with_cloud(self, message: str, mode: str) -> str:
         """Simple chat implementation using LlamaCloud"""
@@ -505,11 +594,11 @@ Please provide a comprehensive answer based on the context above. If the context
                 conversation_context += f"{msg.get('role', 'unknown').title()}: {msg.get('content', '')}\n"
             
             # Retrieve relevant documents
-            if self._retriever:
+            if self._retriever and self._retriever.connection_tested:
                 nodes = self._retriever.retrieve(message, similarity_top_k=3)
                 document_context = self._retriever.format_context(nodes) if nodes else ""
             else:
-                document_context = ""
+                document_context = "Document retrieval not available."
             
             # Create chat prompt
             chat_prompt = f"""You are a research assistant. Please provide a helpful response based on the conversation history and available documents.
@@ -533,7 +622,9 @@ Please provide a conversational response that:
             return str(response)
             
         except Exception as e:
-            self.logger.error(f"Error in cloud chat: {e}")
+            error_msg = f"Error in cloud chat: {e}"
+            self.logger.error(error_msg)
+            print(f"DEBUG: {error_msg}")
             return f"I apologize, but I encountered an error processing your message: {str(e)}"
     
     def _update_llm_for_mode(self, mode_config):
@@ -575,24 +666,43 @@ Please provide a conversational response that:
         status = {
             "status": "healthy",
             "components": {},
+            "debug_info": self.debug_info,
             "timestamp": time.time()
         }
         
         try:
             # Check LLM
             status["components"]["llm"] = {
-                "status": "ok" if self._llm else "error",
-                "model": getattr(self._llm, 'model', 'unknown')
+                "status": "ok" if self._llm and self.debug_info["llm_status"] == "initialized" else "error",
+                "model": getattr(self._llm, 'model', 'unknown'),
+                "details": self.debug_info["llm_status"]
             }
             
             # Check LlamaCloud connection
-            status["components"]["llamacloud"] = {
-                "status": "ok" if self._retriever else "error",
-                "pipeline_id": "configured" if self._retriever else "missing"
-            }
+            if self._retriever:
+                if self._retriever.connection_tested:
+                    status["components"]["llamacloud"] = {
+                        "status": "ok",
+                        "pipeline_id": self._retriever.pipeline_id[:8] + "...",
+                        "details": "connected"
+                    }
+                else:
+                    status["components"]["llamacloud"] = {
+                        "status": "error",
+                        "pipeline_id": self._retriever.pipeline_id[:8] + "...",
+                        "details": self._retriever.connection_error
+                    }
+            else:
+                status["components"]["llamacloud"] = {
+                    "status": "error",
+                    "details": "not_initialized"
+                }
             
             # Check if any critical component failed
-            if not self._llm or not self._retriever:
+            if (not self._llm or 
+                self.debug_info["llm_status"] != "initialized" or
+                not self._retriever or 
+                not self._retriever.connection_tested):
                 status["status"] = "degraded"
             
         except Exception as e:
@@ -607,5 +717,6 @@ Please provide a conversational response that:
             "chat_messages": self._chat_history.message_count,
             "available_modes": list(self.research_modes.keys()),
             "llm_model": getattr(self._llm, 'model', 'unknown'),
-            "mode": "cloud"
+            "mode": "cloud",
+            "debug_info": self.debug_info
         }
