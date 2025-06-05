@@ -1,12 +1,9 @@
 """
-Main Streamlit application for Research Q&A Bot (Safe version)
+Main Streamlit application for Research Q&A Bot (Standalone version)
 """
 import streamlit as st
 import time
-import json
 import os
-from pathlib import Path
-from typing import Dict, Any, Optional
 
 # Configure Streamlit page first
 st.set_page_config(
@@ -16,7 +13,22 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Safe imports with error handling
+# Get app title from environment or secrets
+def get_app_title():
+    """Get app title from environment or secrets"""
+    try:
+        # Try Streamlit secrets first
+        if hasattr(st, 'secrets') and 'APP_TITLE' in st.secrets:
+            return st.secrets["APP_TITLE"]
+    except:
+        pass
+    
+    # Fall back to environment variable or default
+    return os.getenv("APP_TITLE", "🔬 Research Q&A Bot")
+
+APP_TITLE = get_app_title()
+
+# Safe import of core components
 try:
     from core import ResearchBot
     CORE_AVAILABLE = True
@@ -30,13 +42,18 @@ except ImportError as e:
             self.available = False
         
         def process_query(self, query_text, mode="analysis"):
-            return {"success": False, "error": "Bot not available"}
+            return type('obj', (object,), {
+                'success': False,
+                'error': type('obj', (object,), {'message': 'Bot not available'})(),
+                'query': query_text,
+                'mode': mode
+            })()
         
         def chat(self, message, mode="analysis"):
             return "Bot not available - please check configuration"
         
         def get_available_modes(self):
-            return {"analysis": {"display_name": "Analysis", "description": "Basic analysis"}}
+            return {"analysis": {"display_name": "📊 Analysis", "description": "Basic analysis"}}
         
         def health_check(self):
             return {"status": "error", "components": {}}
@@ -47,13 +64,6 @@ except ImportError as e:
         def clear_chat_history(self):
             pass
 
-# Try to get configuration
-try:
-    from utils import config
-    APP_TITLE = config.app_title
-except ImportError:
-    APP_TITLE = os.getenv("APP_TITLE", "🔬 Research Q&A Bot")
-
 # Custom CSS for better styling
 st.markdown("""
 <style>
@@ -63,14 +73,6 @@ st.markdown("""
         color: #1f77b4;
         text-align: center;
         margin-bottom: 2rem;
-    }
-    
-    .mode-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 0.5rem 0;
-        border-left: 4px solid #1f77b4;
     }
     
     .chat-message {
@@ -102,6 +104,15 @@ st.markdown("""
         padding: 1rem;
         margin: 0.5rem 0;
     }
+    
+    .config-info {
+        background-color: #f5f5f5;
+        padding: 0.8rem;
+        border-radius: 0.3rem;
+        margin: 0.3rem 0;
+        border-left: 3px solid #2196f3;
+        font-size: 0.9rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -118,11 +129,9 @@ def initialize_session_state():
         st.session_state.current_mode = "analysis"
     if 'initialization_attempted' not in st.session_state:
         st.session_state.initialization_attempted = False
-    if 'bot_available' not in st.session_state:
-        st.session_state.bot_available = CORE_AVAILABLE
 
 @st.cache_resource
-def initialize_bot() -> Optional[ResearchBot]:
+def initialize_bot():
     """Initialize the research bot (cached)"""
     try:
         if not CORE_AVAILABLE:
@@ -136,7 +145,7 @@ def initialize_bot() -> Optional[ResearchBot]:
         # Test bot functionality
         health = bot.health_check()
         if health["status"] == "error":
-            st.warning(f"⚠️ Bot health check failed: {health.get('error', 'Unknown error')}")
+            st.warning(f"⚠️ Bot health check failed")
             return bot  # Return anyway, might still be partially functional
         
         st.success("✅ Research Bot initialized successfully")
@@ -146,36 +155,69 @@ def initialize_bot() -> Optional[ResearchBot]:
         st.error(f"❌ Failed to initialize bot: {str(e)}")
         return None
 
-def display_bot_status():
-    """Display bot initialization status"""
-    if not st.session_state.bot_available:
-        st.error("❌ Core components not available. Please check your installation.")
-        st.info("""
-        **Troubleshooting steps:**
-        1. Check that all required packages are installed
-        2. Verify your API keys are set correctly in Streamlit secrets
-        3. Ensure LlamaCloud credentials are configured
-        """)
-        return False
+def check_configuration():
+    """Check and display configuration status"""
+    config_status = {}
     
-    if st.session_state.bot is None and not st.session_state.initialization_attempted:
-        with st.spinner("🤖 Initializing Research Bot..."):
-            st.session_state.bot = initialize_bot()
-            st.session_state.initialization_attempted = True
+    # Check OpenAI API key
+    openai_key = None
+    try:
+        if hasattr(st, 'secrets') and 'OPENAI_API_KEY' in st.secrets:
+            openai_key = st.secrets["OPENAI_API_KEY"]
+    except:
+        pass
     
-    if st.session_state.bot is None:
-        st.error("❌ Bot initialization failed. Please check your configuration.")
-        return False
-    else:
-        return True
+    if not openai_key:
+        openai_key = os.getenv("OPENAI_API_KEY")
+    
+    config_status["openai"] = bool(openai_key)
+    
+    # Check LlamaCloud credentials
+    llama_key = None
+    llama_pipeline = None
+    
+    try:
+        if hasattr(st, 'secrets'):
+            llama_key = st.secrets.get("LLAMA_CLOUD_API_KEY")
+            llama_pipeline = st.secrets.get("LLAMA_CLOUD_PIPELINE_ID")
+    except:
+        pass
+    
+    if not llama_key:
+        llama_key = os.getenv("LLAMA_CLOUD_API_KEY")
+    if not llama_pipeline:
+        llama_pipeline = os.getenv("LLAMA_CLOUD_PIPELINE_ID")
+    
+    config_status["llamacloud"] = bool(llama_key and llama_pipeline)
+    config_status["pipeline_id"] = llama_pipeline[:8] + "..." if llama_pipeline else "Missing"
+    
+    return config_status
 
 def display_sidebar():
     """Display sidebar with configuration and controls"""
     with st.sidebar:
         st.title("🔬 Research Assistant")
         
+        # Configuration status
+        config_status = check_configuration()
+        
+        st.subheader("⚙️ Configuration Status")
+        
+        if config_status["openai"]:
+            st.markdown('<div class="config-info">🔑 <strong>OpenAI:</strong> ✅ Connected</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="error-message">🔑 <strong>OpenAI:</strong> ❌ Missing API Key</div>', unsafe_allow_html=True)
+        
+        if config_status["llamacloud"]:
+            st.markdown('<div class="config-info">☁️ <strong>LlamaCloud:</strong> ✅ Connected</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="config-info">📋 <strong>Pipeline:</strong> {config_status["pipeline_id"]}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="error-message">☁️ <strong>LlamaCloud:</strong> ❌ Missing Credentials</div>', unsafe_allow_html=True)
+        
+        st.divider()
+        
         # Bot status
-        if st.session_state.bot and st.session_state.bot_available:
+        if st.session_state.bot and CORE_AVAILABLE:
             st.success("🤖 Bot: Online")
             
             # Health check button
@@ -185,10 +227,12 @@ def display_sidebar():
                     st.success("✅ All systems operational")
                 elif health["status"] == "degraded":
                     st.warning("⚠️ Some components have issues")
-                    st.json(health.get("components", {}))
+                    with st.expander("Details"):
+                        st.json(health.get("components", {}))
                 else:
                     st.error(f"❌ Status: {health['status']}")
-                    st.json(health)
+                    with st.expander("Details"):
+                        st.json(health)
         else:
             st.error("🤖 Bot: Offline")
         
@@ -197,7 +241,7 @@ def display_sidebar():
         # Research mode selection
         st.subheader("🎯 Research Mode")
         
-        if st.session_state.bot and st.session_state.bot_available:
+        if st.session_state.bot and CORE_AVAILABLE:
             try:
                 available_modes = st.session_state.bot.get_available_modes()
                 mode_options = {
@@ -249,7 +293,7 @@ def display_sidebar():
             st.session_state.chat_history.clear()
             st.rerun()
         
-        # Show chat statistics
+        # Show statistics
         if st.session_state.bot:
             try:
                 stats = st.session_state.bot.get_stats()
@@ -260,36 +304,56 @@ def display_sidebar():
         
         st.divider()
         
-        # Configuration info
-        st.subheader("⚙️ Configuration")
-        
-        # Show deployment mode
-        use_cloud = (
-            os.getenv("LLAMA_CLOUD_API_KEY") or 
-            (hasattr(st, 'secrets') and st.secrets.get("LLAMA_CLOUD_API_KEY"))
-        )
-        
-        if use_cloud:
-            st.success("☁️ Cloud Mode")
-            pipeline_id = (
-                os.getenv("LLAMA_CLOUD_PIPELINE_ID") or
-                (hasattr(st, 'secrets') and st.secrets.get("LLAMA_CLOUD_PIPELINE_ID"))
-            )
-            if pipeline_id:
-                st.caption(f"Pipeline: {pipeline_id[:8]}...")
-        else:
-            st.info("💻 Local Mode")
-        
-        # API Key status
-        openai_key = (
-            os.getenv("OPENAI_API_KEY") or
-            (hasattr(st, 'secrets') and st.secrets.get("OPENAI_API_KEY"))
-        )
-        
-        if openai_key:
-            st.success("🔑 OpenAI: Connected")
-        else:
-            st.error("🔑 OpenAI: Missing")
+        # Troubleshooting
+        if not CORE_AVAILABLE or not config_status["openai"] or not config_status["llamacloud"]:
+            st.subheader("🛠️ Troubleshooting")
+            
+            if not CORE_AVAILABLE:
+                st.error("❌ Core modules not available")
+                st.info("Check your installation and dependencies")
+            
+            if not config_status["openai"]:
+                st.warning("⚠️ OpenAI API key missing")
+                st.info("Add OPENAI_API_KEY to Streamlit secrets")
+            
+            if not config_status["llamacloud"]:
+                st.warning("⚠️ LlamaCloud credentials missing")
+                st.info("Add LLAMA_CLOUD_API_KEY and LLAMA_CLOUD_PIPELINE_ID to secrets")
+
+def display_bot_status():
+    """Display bot initialization status"""
+    config_status = check_configuration()
+    
+    if not CORE_AVAILABLE:
+        st.error("❌ Core components not available. Please check your installation.")
+        st.info("""
+        **Troubleshooting steps:**
+        1. Check that all required packages are installed
+        2. Verify your dependencies in requirements.txt
+        3. Check the app logs for import errors
+        """)
+        return False
+    
+    if not config_status["openai"] or not config_status["llamacloud"]:
+        st.error("❌ Missing required credentials.")
+        st.info("""
+        **Required Streamlit Secrets:**
+        - OPENAI_API_KEY
+        - LLAMA_CLOUD_API_KEY  
+        - LLAMA_CLOUD_PIPELINE_ID
+        """)
+        return False
+    
+    if st.session_state.bot is None and not st.session_state.initialization_attempted:
+        with st.spinner("🤖 Initializing Research Bot..."):
+            st.session_state.bot = initialize_bot()
+            st.session_state.initialization_attempted = True
+    
+    if st.session_state.bot is None:
+        st.error("❌ Bot initialization failed. Please check the sidebar for details.")
+        return False
+    else:
+        return True
 
 def display_main_interface():
     """Display main research interface"""
@@ -381,9 +445,6 @@ def display_query_results(result, processing_time: float):
         if hasattr(result, 'raw_response') and result.raw_response:
             st.markdown("### 📄 Response")
             st.write(result.raw_response)
-        elif hasattr(result, 'structured_response') and result.structured_response:
-            st.markdown("### 📄 Response") 
-            st.write(str(result.structured_response))
         else:
             st.info("Response generated but content not available for display.")
     
@@ -397,9 +458,6 @@ def display_query_results(result, processing_time: float):
         if hasattr(result, 'error') and result.error:
             error_msg = result.error.message if hasattr(result.error, 'message') else str(result.error)
             st.error(f"Error: {error_msg}")
-            
-            if hasattr(result.error, 'suggestion') and result.error.suggestion:
-                st.info(f"💡 Suggestion: {result.error.suggestion}")
 
 def display_chat_interface():
     """Display chat interface"""
@@ -484,12 +542,7 @@ def display_analytics():
         st.metric("Avg Query Length", f"{avg_length:.0f} chars")
     
     with col4:
-        if st.session_state.bot:
-            try:
-                chat_stats = st.session_state.bot.get_stats()
-                st.metric("Chat Messages", chat_stats.get("chat_messages", 0))
-            except:
-                st.metric("Chat Messages", len(st.session_state.chat_history))
+        st.metric("Chat Messages", len(st.session_state.chat_history))
     
     # Mode distribution
     if mode_counts:
@@ -499,17 +552,6 @@ def display_analytics():
             percentage = (count / total_queries) * 100
             st.write(f"**{mode.title()}**: {count} queries ({percentage:.1f}%)")
             st.progress(percentage / 100)
-    
-    # Recent queries
-    st.subheader("🕒 Recent Research Queries")
-    
-    recent_queries = st.session_state.query_history[-5:]  # Last 5 queries
-    for i, query in enumerate(reversed(recent_queries), 1):
-        with st.expander(f"Query {len(st.session_state.query_history) - i + 1}: {query.get('query', 'N/A')[:50]}..."):
-            st.write(f"**Mode:** {query.get('mode', 'Unknown')}")
-            st.write(f"**Query:** {query.get('query', 'N/A')}")
-            if 'timestamp' in query:
-                st.write(f"**Time:** {query['timestamp']}")
 
 def save_query_to_history(query: str, result):
     """Save query to history"""
@@ -519,14 +561,14 @@ def save_query_to_history(query: str, result):
         "query": query,
         "mode": st.session_state.current_mode,
         "success": getattr(result, 'success', False),
-        "response": getattr(result, 'raw_response', str(result))
+        "response": getattr(result, 'raw_response', str(result))[:200] + "..."
     }
     
     st.session_state.query_history.append(query_data)
     
-    # Keep only last 100 queries to prevent memory issues
-    if len(st.session_state.query_history) > 100:
-        st.session_state.query_history = st.session_state.query_history[-100:]
+    # Keep only last 50 queries to prevent memory issues
+    if len(st.session_state.query_history) > 50:
+        st.session_state.query_history = st.session_state.query_history[-50:]
 
 def main():
     """Main application function"""
