@@ -1,5 +1,5 @@
 """
-Pydantic models for research-related data structures
+Pydantic models for research-related data structures (Fixed for Pydantic v2)
 """
 from datetime import datetime
 from enum import Enum
@@ -63,7 +63,7 @@ class ResearchQuery(BaseModel):
 
 class ChatMessage(BaseModel):
     """Chat message model"""
-    role: str = Field(regex="^(user|assistant|system)$")
+    role: str = Field(pattern="^(user|assistant|system)$")  # Fixed: regex -> pattern
     content: str = Field(min_length=1)
     timestamp: datetime = Field(default_factory=datetime.now)
     metadata: Optional[Dict[str, Any]] = None
