@@ -1,6 +1,6 @@
 """
 Main bot manager for Research Q&A Bot
-Central coordinator for all bot functionality with LlamaCloud support
+Minimal version without problematic imports
 """
 import os
 import time
@@ -8,154 +8,95 @@ import requests
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-# Safe imports with fallbacks
-try:
-    from llama_index.core import StorageContext, load_index_from_storage
-except ImportError:
-    StorageContext = None
-    load_index_from_storage = None
+# Minimal fallback classes
+class ResearchQuery:
+    def __init__(self, text, mode, **kwargs):
+        self.text = text
+        self.mode = mode
 
-try:
-    from llama_index.core.memory import ChatMemoryBuffer
-except ImportError:
-    ChatMemoryBuffer = None
+class ResearchMode:
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
-try:
-    from llama_index.llms.openai import OpenAI
-except ImportError:
-    OpenAI = None
+class ChatHistory:
+    def __init__(self):
+        self.messages = []
+        self.message_count = 0
+    
+    def add_message(self, role, content, metadata=None):
+        self.messages.append({"role": role, "content": content})
+        self.message_count += 1
+    
+    def get_recent_messages(self, limit=10):
+        return self.messages[-limit:] if self.messages else []
+    
+    def clear(self):
+        self.messages.clear()
+        self.message_count = 0
 
-# Local imports with fallbacks
-try:
-    from models.research_models import (
-        ResearchQuery, ResearchMode, ChatHistory, ResearchModeType
-    )
-    from models.response_schemas import QueryResponse, ErrorResponse, ResponseMetadata
-except ImportError as e:
-    print(f"Models import error: {e}")
-    # Create minimal fallback classes
-    class ResearchQuery:
-        def __init__(self, text, mode, **kwargs):
-            self.text = text
-            self.mode = mode
-    
-    class ResearchMode:
-        def __init__(self, **kwargs):
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-    
-    class ChatHistory:
-        def __init__(self):
-            self.messages = []
-            self.message_count = 0
-        
-        def add_message(self, role, content, metadata=None):
-            self.messages.append({"role": role, "content": content})
-            self.message_count += 1
-        
-        def get_recent_messages(self, limit=10):
-            return self.messages[-limit:] if self.messages else []
-        
-        def clear(self):
-            self.messages.clear()
-            self.message_count = 0
-    
-    class QueryResponse:
-        def __init__(self, success=True, query="", mode="", **kwargs):
-            self.success = success
-            self.query = query
-            self.mode = mode
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-    
-    class ErrorResponse:
-        def __init__(self, error_type="", message="", **kwargs):
-            self.error_type = error_type
-            self.message = message
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-    
-    class ResponseMetadata:
-        def __init__(self, processing_time=0.0, mode="", **kwargs):
-            self.processing_time = processing_time
-            self.mode = mode
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-    
-    ResearchModeType = type('ResearchModeType', (), {
-        'ANALYSIS': 'analysis',
-        'FACTS': 'facts', 
-        'COMPARISON': 'comparison',
-        'SUMMARY': 'summary'
-    })()
+class QueryResponse:
+    def __init__(self, success=True, query="", mode="", **kwargs):
+        self.success = success
+        self.query = query
+        self.mode = mode
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
-try:
-    from utils import config, get_logger, log_query, log_error, measure_time
-except ImportError as e:
-    print(f"Utils import error: {e}")
-    # Minimal fallbacks
-    class Config:
-        def get(self, key, default=None):
-            return os.getenv(key.replace('.', '_').upper(), default)
-        
-        @property
-        def openai_api_key(self):
-            return os.getenv('OPENAI_API_KEY')
-        
-        @property
-        def llm_model(self):
-            return os.getenv('OPENAI_MODEL', 'gpt-4')
-        
-        @property
-        def llm_temperature(self):
-            return float(os.getenv('OPENAI_TEMPERATURE', '0.1'))
-        
-        @property
-        def similarity_top_k(self):
-            return int(os.getenv('SIMILARITY_TOP_K', '5'))
-        
-        @property
-        def research_modes(self):
-            return [
-                {"name": "analysis", "display_name": "📊 Deep Analysis", "description": "Comprehensive analysis", "temperature": 0.2, "max_tokens": 3000},
-                {"name": "facts", "display_name": "🔍 Fact Extraction", "description": "Extract key facts", "temperature": 0.1, "max_tokens": 1500},
-                {"name": "comparison", "display_name": "⚖️ Comparative Analysis", "description": "Compare sources", "temperature": 0.15, "max_tokens": 2500},
-                {"name": "summary", "display_name": "📝 Summarization", "description": "Summarize content", "temperature": 0.2, "max_tokens": 2000}
-            ]
-    
-    config = Config()
-    
-    def get_logger(name):
-        import logging
-        return logging.getLogger(name)
-    
-    def log_query(query, time, mode):
-        print(f"Query: {query[:50]}... Mode: {mode} Time: {time:.2f}s")
-    
-    def log_error(error, context):
-        print(f"Error in {context}: {error}")
-    
-    def measure_time(func):
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-        return wrapper
+class ErrorResponse:
+    def __init__(self, error_type="", message="", **kwargs):
+        self.error_type = error_type
+        self.message = message
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
-# Import engines with fallbacks
-try:
-    from .query_engine import ResearchQueryEngine
-except ImportError:
-    ResearchQueryEngine = None
+class ResponseMetadata:
+    def __init__(self, processing_time=0.0, mode="", **kwargs):
+        self.processing_time = processing_time
+        self.mode = mode
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
-try:
-    from .chat_engine import ResearchChatEngine  
-except ImportError:
-    ResearchChatEngine = None
+# Simple OpenAI client
+class SimpleOpenAI:
+    def __init__(self, api_key, model="gpt-4", temperature=0.1, max_tokens=2000):
+        self.api_key = api_key
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+    
+    def complete(self, prompt):
+        try:
+            import openai
+            client = openai.OpenAI(api_key=self.api_key)
+            
+            response = client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=self.temperature,
+                max_tokens=self.max_tokens
+            )
+            
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error generating response: {str(e)}"
 
-try:
-    from .response_formatter import ResponseFormatter
-except ImportError:
-    ResponseFormatter = None
+# Logger fallback
+def get_logger(name):
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    return logging.getLogger(name)
 
+def log_query(query, time, mode):
+    print(f"Query: {query[:50]}... Mode: {mode} Time: {time:.2f}s")
+
+def log_error(error, context):
+    print(f"Error in {context}: {error}")
+
+def measure_time(func):
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
 
 class LlamaCloudRetriever:
     """Simple LlamaCloud retriever for research queries"""
@@ -228,34 +169,20 @@ class LlamaCloudRetriever:
         
         return "\n---\n".join(context_parts)
 
-
 class ResearchBot:
     """
     Main Research Q&A Bot manager with LlamaCloud support
-    Coordinates all bot functionality and maintains state
+    Minimal version without complex dependencies
     """
     
     def __init__(self, index_path: Optional[str] = None):
-        """
-        Initialize the Research Bot
-        
-        Args:
-            index_path: Path to the LlamaIndex storage directory (for local index)
-        """
+        """Initialize the Research Bot"""
         self.logger = get_logger("ResearchBot")
-        self.index_path = index_path or config.get("llamaindex.index_path", "./data/index")
         
         # Initialize components
-        self._index = None
         self._llm = None
-        self._retriever = None  # For LlamaCloud
-        self._query_engine = None
-        self._chat_engine = None
-        self._response_formatter = None
+        self._retriever = None
         self._chat_history = ChatHistory()
-        
-        # Cloud configuration
-        self.use_cloud = self._should_use_cloud()
         
         # Load configuration
         self.research_modes = self._load_research_modes()
@@ -263,40 +190,38 @@ class ResearchBot:
         # Initialize bot
         self._initialize_bot()
     
-    def _should_use_cloud(self) -> bool:
-        """Determine if should use cloud based on available credentials"""
-        # Check for LlamaCloud credentials
-        api_key = os.getenv("LLAMA_CLOUD_API_KEY")
-        pipeline_id = os.getenv("LLAMA_CLOUD_PIPELINE_ID")
-        
-        # Check Streamlit secrets
-        try:
-            import streamlit as st
-            if hasattr(st, 'secrets'):
-                api_key = api_key or st.secrets.get("LLAMA_CLOUD_API_KEY")
-                pipeline_id = pipeline_id or st.secrets.get("LLAMA_CLOUD_PIPELINE_ID")
-        except:
-            pass
-        
-        return bool(api_key and pipeline_id)
-    
     def _load_research_modes(self) -> Dict[str, ResearchMode]:
         """Load research modes from configuration"""
-        modes = {}
-        try:
-            for mode_config in config.research_modes:
-                mode = ResearchMode(**mode_config)
-                modes[mode.name] = mode
-        except Exception as e:
-            self.logger.error(f"Failed to load research modes: {e}")
-            # Fallback modes
-            modes = {
-                "analysis": ResearchMode(name="analysis", display_name="📊 Deep Analysis", description="Comprehensive analysis", temperature=0.2, max_tokens=3000),
-                "facts": ResearchMode(name="facts", display_name="🔍 Fact Extraction", description="Extract key facts", temperature=0.1, max_tokens=1500),
-                "comparison": ResearchMode(name="comparison", display_name="⚖️ Comparative Analysis", description="Compare sources", temperature=0.15, max_tokens=2500),
-                "summary": ResearchMode(name="summary", display_name="📝 Summarization", description="Summarize content", temperature=0.2, max_tokens=2000)
-            }
-        
+        modes = {
+            "analysis": ResearchMode(
+                name="analysis", 
+                display_name="📊 Deep Analysis", 
+                description="Comprehensive analysis of research topics", 
+                temperature=0.2, 
+                max_tokens=3000
+            ),
+            "facts": ResearchMode(
+                name="facts", 
+                display_name="🔍 Fact Extraction", 
+                description="Extract key facts and definitions", 
+                temperature=0.1, 
+                max_tokens=1500
+            ),
+            "comparison": ResearchMode(
+                name="comparison", 
+                display_name="⚖️ Comparative Analysis", 
+                description="Compare different sources and findings", 
+                temperature=0.15, 
+                max_tokens=2500
+            ),
+            "summary": ResearchMode(
+                name="summary", 
+                display_name="📝 Summarization", 
+                description="Summarize large volumes of documentation", 
+                temperature=0.2, 
+                max_tokens=2000
+            )
+        }
         return modes
     
     def _initialize_bot(self):
@@ -304,59 +229,64 @@ class ResearchBot:
         try:
             self.logger.info("Initializing Research Bot...")
             
-            # Initialize LLM first
+            # Initialize LLM
             self._initialize_llm()
             
-            # Load index or setup cloud retriever
-            if self.use_cloud:
-                self._setup_llamacloud()
-            else:
-                self._load_local_index()
-            
-            # Initialize engines (if available)
-            self._initialize_engines()
-            
-            # Initialize response formatter (if available)
-            if ResponseFormatter:
-                self._response_formatter = ResponseFormatter()
+            # Setup LlamaCloud retriever
+            self._setup_llamacloud()
             
             self.logger.info("Research Bot initialized successfully")
             
         except Exception as e:
             self.logger.error(f"Failed to initialize bot: {e}")
-            # Don't raise - allow partial initialization
             print(f"Warning: Bot initialization failed: {e}")
     
     def _initialize_llm(self):
         """Initialize OpenAI LLM"""
         try:
-            if not OpenAI:
-                raise ImportError("OpenAI not available")
+            # Get API key from Streamlit secrets or environment
+            api_key = None
             
-            # Get API key
-            api_key = os.getenv("OPENAI_API_KEY")
+            # Try Streamlit secrets first
             try:
                 import streamlit as st
-                if hasattr(st, 'secrets') and not api_key:
-                    api_key = st.secrets.get("OPENAI_API_KEY")
+                if hasattr(st, 'secrets') and 'OPENAI_API_KEY' in st.secrets:
+                    api_key = st.secrets["OPENAI_API_KEY"]
             except:
                 pass
+            
+            # Fall back to environment variable
+            if not api_key:
+                api_key = os.getenv("OPENAI_API_KEY")
             
             if not api_key:
                 raise ValueError("OpenAI API key not found")
             
-            self._llm = OpenAI(
+            # Get model settings
+            model = os.getenv("OPENAI_MODEL", "gpt-4")
+            temperature = float(os.getenv("OPENAI_TEMPERATURE", "0.1"))
+            
+            # Try Streamlit secrets for model settings
+            try:
+                import streamlit as st
+                if hasattr(st, 'secrets'):
+                    model = st.secrets.get("OPENAI_MODEL", model)
+                    temperature = float(st.secrets.get("OPENAI_TEMPERATURE", temperature))
+            except:
+                pass
+            
+            self._llm = SimpleOpenAI(
                 api_key=api_key,
-                model=os.getenv("OPENAI_MODEL", "gpt-4"),
-                temperature=float(os.getenv("OPENAI_TEMPERATURE", "0.1")),
+                model=model,
+                temperature=temperature,
                 max_tokens=2000
             )
             
-            self.logger.info(f"LLM initialized: {os.getenv('OPENAI_MODEL', 'gpt-4')}")
+            self.logger.info(f"LLM initialized: {model}")
             
         except Exception as e:
             self.logger.error(f"Failed to initialize LLM: {e}")
-            # Create a mock LLM for testing
+            # Create a mock LLM
             class MockLLM:
                 def __init__(self):
                     self.temperature = 0.1
@@ -364,7 +294,7 @@ class ResearchBot:
                     self.model = "mock-llm"
                 
                 def complete(self, prompt):
-                    return f"Mock response to: {prompt[:100]}..."
+                    return f"Mock response to: {prompt[:100]}... (LLM not available)"
             
             self._llm = MockLLM()
             print("Warning: Using mock LLM - OpenAI integration failed")
@@ -372,24 +302,30 @@ class ResearchBot:
     def _setup_llamacloud(self):
         """Setup LlamaCloud retriever"""
         try:
-            # Get credentials
-            api_key = os.getenv("LLAMA_CLOUD_API_KEY")
-            pipeline_id = os.getenv("LLAMA_CLOUD_PIPELINE_ID")
+            # Get credentials from Streamlit secrets or environment
+            api_key = None
+            pipeline_id = None
             
-            # Try Streamlit secrets
+            # Try Streamlit secrets first
             try:
                 import streamlit as st
                 if hasattr(st, 'secrets'):
-                    api_key = api_key or st.secrets.get("LLAMA_CLOUD_API_KEY")
-                    pipeline_id = pipeline_id or st.secrets.get("LLAMA_CLOUD_PIPELINE_ID")
+                    api_key = st.secrets.get("LLAMA_CLOUD_API_KEY")
+                    pipeline_id = st.secrets.get("LLAMA_CLOUD_PIPELINE_ID")
             except:
                 pass
             
+            # Fall back to environment variables
             if not api_key:
-                raise ValueError("LlamaCloud API key not found. Set LLAMA_CLOUD_API_KEY.")
+                api_key = os.getenv("LLAMA_CLOUD_API_KEY")
+            if not pipeline_id:
+                pipeline_id = os.getenv("LLAMA_CLOUD_PIPELINE_ID")
+            
+            if not api_key:
+                raise ValueError("LlamaCloud API key not found")
             
             if not pipeline_id:
-                raise ValueError("LlamaCloud pipeline ID not found. Set LLAMA_CLOUD_PIPELINE_ID.")
+                raise ValueError("LlamaCloud pipeline ID not found")
             
             self.logger.info(f"Setting up LlamaCloud retriever with pipeline: {pipeline_id}")
             
@@ -409,64 +345,6 @@ class ResearchBot:
             self._retriever = None
             print(f"Warning: LlamaCloud setup failed: {e}")
     
-    def _load_local_index(self):
-        """Load LlamaIndex from local storage"""
-        try:
-            if not (StorageContext and load_index_from_storage):
-                raise ImportError("LlamaIndex core not available")
-            
-            index_path = Path(self.index_path)
-            
-            if not index_path.exists():
-                raise FileNotFoundError(f"Index not found at: {index_path}")
-            
-            self.logger.info(f"Loading local index from: {index_path}")
-            
-            # Load index from storage
-            storage_context = StorageContext.from_defaults(persist_dir=str(index_path))
-            self._index = load_index_from_storage(storage_context)
-            
-            self.logger.info("Local index loaded successfully")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to load local index: {e}")
-            self._index = None
-            print(f"Warning: Local index loading failed: {e}")
-    
-    def _initialize_engines(self):
-        """Initialize query and chat engines"""
-        try:
-            if self.use_cloud or not self._index:
-                # For cloud mode or when local index failed
-                self._query_engine = None
-                self._chat_engine = None
-                self.logger.info("Using cloud mode or engines unavailable")
-            else:
-                # Local mode with standard LlamaIndex engines
-                if ResearchQueryEngine:
-                    self._query_engine = ResearchQueryEngine(
-                        index=self._index,
-                        llm=self._llm,
-                        similarity_top_k=config.similarity_top_k
-                    )
-                
-                # Chat Engine
-                if ChatMemoryBuffer and ResearchChatEngine:
-                    memory = ChatMemoryBuffer.from_defaults(token_limit=2000)
-                    self._chat_engine = ResearchChatEngine(
-                        index=self._index,
-                        llm=self._llm,
-                        memory=memory
-                    )
-                
-                self.logger.info("Local mode: standard LlamaIndex engines initialized")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to initialize engines: {e}")
-            self._query_engine = None
-            self._chat_engine = None
-            print(f"Warning: Engine initialization failed: {e}")
-    
     def _query_with_cloud(self, query_text: str, mode: str) -> str:
         """Query using LlamaCloud retriever and direct LLM call"""
         try:
@@ -475,8 +353,6 @@ class ResearchBot:
             
             # Get similarity_top_k based on mode
             similarity_k = 5
-            
-            # Adjust based on mode
             if mode == "summary":
                 similarity_k = 8
             elif mode == "comparison":
@@ -492,16 +368,14 @@ class ResearchBot:
             context = self._retriever.format_context(nodes)
             
             # Create simple prompt based on mode
-            if mode == "analysis":
-                mode_instruction = "Provide a comprehensive analysis of the research question based on the provided context."
-            elif mode == "facts":
-                mode_instruction = "Extract key facts and definitions from the provided context."
-            elif mode == "comparison":
-                mode_instruction = "Compare different approaches, findings, or perspectives mentioned in the provided context."
-            elif mode == "summary":
-                mode_instruction = "Summarize the main findings and conclusions from the provided context."
-            else:
-                mode_instruction = "Please answer the research question based on the provided context."
+            mode_instructions = {
+                "analysis": "Provide a comprehensive analysis of the research question based on the provided context.",
+                "facts": "Extract key facts and definitions from the provided context.",
+                "comparison": "Compare different approaches, findings, or perspectives mentioned in the provided context.",
+                "summary": "Summarize the main findings and conclusions from the provided context."
+            }
+            
+            mode_instruction = mode_instructions.get(mode, "Please answer the research question based on the provided context.")
             
             # Combine prompt with context
             full_prompt = f"""{mode_instruction}
@@ -524,55 +398,24 @@ Please provide a comprehensive answer based on the context above. If the context
     
     @measure_time
     def process_query(self, query_text: str, mode: str = "analysis") -> QueryResponse:
-        """
-        Process a research query
-        
-        Args:
-            query_text: The research question
-            mode: Research mode to use
-            
-        Returns:
-            QueryResponse with structured results
-        """
+        """Process a research query"""
         start_time = time.time()
         
         try:
             # Validate mode
             if mode not in self.research_modes:
-                available_modes = list(self.research_modes.keys())
-                if available_modes:
-                    mode = available_modes[0]  # Use first available mode as fallback
-                else:
-                    mode = "analysis"  # Ultimate fallback
+                mode = "analysis"  # Fallback
             
             # Create query object
             query = ResearchQuery(text=query_text, mode=mode)
             
-            # Get mode configuration
+            # Get mode configuration and update LLM
             mode_config = self.research_modes.get(mode)
             if mode_config:
                 self._update_llm_for_mode(mode_config)
             
-            # Process query based on available method
-            if self.use_cloud and self._retriever:
-                # Use LlamaCloud retriever
-                response_text = self._query_with_cloud(query_text, mode)
-            elif self._query_engine:
-                # Use local index with specialized query methods
-                if mode == "facts" and hasattr(self._query_engine, 'extract_facts'):
-                    response = self._query_engine.extract_facts(query)
-                elif mode == "comparison" and hasattr(self._query_engine, 'compare_sources'):
-                    response = self._query_engine.compare_sources(query)
-                elif mode == "analysis" and hasattr(self._query_engine, 'deep_analysis'):
-                    response = self._query_engine.deep_analysis(query)
-                elif mode == "summary" and hasattr(self._query_engine, 'summarize'):
-                    response = self._query_engine.summarize(query)
-                else:
-                    response = self._query_engine.query(query)
-                response_text = str(response)
-            else:
-                # Fallback to simple LLM completion
-                response_text = str(self._llm.complete(f"Please provide a {mode} for the following research question: {query_text}"))
+            # Process query using LlamaCloud
+            response_text = self._query_with_cloud(query_text, mode)
             
             # Calculate processing time
             processing_time = time.time() - start_time
@@ -585,12 +428,11 @@ Please provide a comprehensive answer based on the context above. If the context
                 sources_count=0
             )
             
-            # Create response (simplified without complex formatting for now)
+            # Create response
             result = QueryResponse(
                 success=True,
                 query=query_text,
                 mode=mode,
-                structured_response=None,  # Simplified for stability
                 metadata=metadata
             )
             
@@ -628,16 +470,7 @@ Please provide a comprehensive answer based on the context above. If the context
             )
     
     def chat(self, message: str, mode: str = "analysis") -> str:
-        """
-        Chat with the bot (maintains conversation history)
-        
-        Args:
-            message: User message
-            mode: Research mode for context
-            
-        Returns:
-            Bot response
-        """
+        """Chat with the bot"""
         try:
             # Update LLM for mode
             if mode in self.research_modes:
@@ -646,18 +479,8 @@ Please provide a comprehensive answer based on the context above. If the context
             # Add user message to history
             self._chat_history.add_message("user", message)
             
-            if self.use_cloud and self._retriever:
-                # Simple cloud-based chat
-                response_text = self._chat_with_cloud(message, mode)
-            elif self._chat_engine:
-                # Use local chat engine
-                if hasattr(self._chat_engine, 'set_research_mode'):
-                    self._chat_engine.set_research_mode(mode)
-                response = self._chat_engine.chat(message)
-                response_text = str(response)
-            else:
-                # Fallback to simple LLM chat
-                response_text = str(self._llm.complete(f"As a research assistant, please respond to: {message}"))
+            # Simple cloud-based chat
+            response_text = self._chat_with_cloud(message, mode)
             
             # Add bot response to history
             self._chat_history.add_message("assistant", response_text)
@@ -682,8 +505,11 @@ Please provide a comprehensive answer based on the context above. If the context
                 conversation_context += f"{msg.get('role', 'unknown').title()}: {msg.get('content', '')}\n"
             
             # Retrieve relevant documents
-            nodes = self._retriever.retrieve(message, similarity_top_k=3)
-            document_context = self._retriever.format_context(nodes) if nodes else ""
+            if self._retriever:
+                nodes = self._retriever.retrieve(message, similarity_top_k=3)
+                document_context = self._retriever.format_context(nodes) if nodes else ""
+            else:
+                document_context = ""
             
             # Create chat prompt
             chat_prompt = f"""You are a research assistant. Please provide a helpful response based on the conversation history and available documents.
@@ -722,13 +548,9 @@ Please provide a conversational response that:
     
     def _extract_keywords(self, text: str) -> List[str]:
         """Extract keywords from query text"""
-        try:
-            from utils.helpers import extract_keywords
-            return extract_keywords(text, max_keywords=5)
-        except:
-            # Simple fallback keyword extraction
-            words = text.lower().split()
-            return [word for word in words if len(word) > 3][:5]
+        # Simple fallback keyword extraction
+        words = text.lower().split()
+        return [word for word in words if len(word) > 3][:5]
     
     def get_chat_history(self) -> ChatHistory:
         """Get current chat history"""
@@ -737,8 +559,6 @@ Please provide a conversational response that:
     def clear_chat_history(self):
         """Clear chat history"""
         self._chat_history.clear()
-        if self._chat_engine and hasattr(self._chat_engine, 'reset'):
-            self._chat_engine.reset()
     
     def get_available_modes(self) -> Dict[str, Dict[str, str]]:
         """Get available research modes"""
@@ -765,40 +585,14 @@ Please provide a conversational response that:
                 "model": getattr(self._llm, 'model', 'unknown')
             }
             
-            if self.use_cloud:
-                # Check LlamaCloud connection
-                status["components"]["llamacloud"] = {
-                    "status": "ok" if self._retriever else "error",
-                    "pipeline_id": os.getenv("LLAMA_CLOUD_PIPELINE_ID", "unknown")
-                }
-            else:
-                # Check local index
-                status["components"]["index"] = {
-                    "status": "ok" if self._index else "error",
-                    "path": self.index_path
-                }
-                
-                status["components"]["query_engine"] = {
-                    "status": "ok" if self._query_engine else "error"
-                }
-                
-                status["components"]["chat_engine"] = {
-                    "status": "ok" if self._chat_engine else "error"
-                }
+            # Check LlamaCloud connection
+            status["components"]["llamacloud"] = {
+                "status": "ok" if self._retriever else "error",
+                "pipeline_id": "configured" if self._retriever else "missing"
+            }
             
             # Check if any critical component failed
-            critical_components = ["llm"]
-            if self.use_cloud:
-                critical_components.append("llamacloud")
-            else:
-                critical_components.extend(["index"])
-            
-            failed_critical = any(
-                status["components"].get(comp, {}).get("status") == "error" 
-                for comp in critical_components
-            )
-            
-            if failed_critical:
+            if not self._llm or not self._retriever:
                 status["status"] = "degraded"
             
         except Exception as e:
@@ -809,16 +603,9 @@ Please provide a conversational response that:
     
     def get_stats(self) -> Dict[str, Any]:
         """Get bot statistics"""
-        stats = {
+        return {
             "chat_messages": self._chat_history.message_count,
             "available_modes": list(self.research_modes.keys()),
             "llm_model": getattr(self._llm, 'model', 'unknown'),
-            "mode": "cloud" if self.use_cloud else "local"
+            "mode": "cloud"
         }
-        
-        if self.use_cloud:
-            stats["pipeline_id"] = os.getenv("LLAMA_CLOUD_PIPELINE_ID", "unknown")
-        else:
-            stats["index_path"] = self.index_path
-        
-        return stats
