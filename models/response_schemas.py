@@ -1,5 +1,5 @@
 """
-Pydantic models for structured response schemas
+Pydantic models for structured response schemas (Fixed for Pydantic v2)
 """
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Union
@@ -37,7 +37,7 @@ class KeyFact(BaseModel):
     """Individual key fact"""
     fact: str = Field(min_length=5)
     category: Optional[str] = None
-    importance: Optional[str] = Field(None, regex="^(high|medium|low)$")
+    importance: Optional[str] = Field(None, pattern="^(high|medium|low)$")  # Fixed: regex -> pattern
     source_reference: Optional[SourceReference] = None
     
     @validator('fact')
@@ -133,7 +133,7 @@ class DeepAnalysis(BaseModel):
 class SummaryPoint(BaseModel):
     """Individual summary point"""
     point: str = Field(min_length=10)
-    importance: str = Field(pattern="^(high|medium|low)$")
+    importance: str = Field(pattern="^(high|medium|low)$")  # Fixed: regex -> pattern
     details: Optional[str] = None
     source_reference: Optional[SourceReference] = None
 
@@ -152,7 +152,7 @@ class SummaryResponse(BaseModel):
 
 class StructuredResponse(BaseModel):
     """Generic structured response wrapper"""
-    response_type: str = Field(pattern="^(facts|comparison|analysis|summary)$")
+    response_type: str = Field(pattern="^(facts|comparison|analysis|summary)$")  # Fixed: regex -> pattern
     content: Union[FactExtraction, ComparisonAnalysis, DeepAnalysis, SummaryResponse]
     raw_response: Optional[str] = None  # Original unstructured response
     processing_notes: Optional[str] = None
