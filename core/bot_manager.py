@@ -130,11 +130,18 @@ class LlamaCloudRetriever:
     def retrieve(self, query: str, similarity_top_k: int = 5) -> List[Dict[str, Any]]:
         """Retrieve documents from LlamaCloud pipeline"""
         try:
-            url = f"{self.api_base}/pipelines/{self.pipeline_id}/retrieve"
+            # Try different endpoint formats
+            endpoints_to_try = [
+                f"{self.api_base}/pipelines/{self.pipeline_id}/retrieve",
+                f"https://api.cloud.llamaindex.ai/api/v1/pipelines/{self.pipeline_id}/retrieve",
+                f"https://cloud.llamaindex.ai/api/v1/pipelines/{self.pipeline_id}/retrieve"
+            ]
             
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "research-qa-bot/1.0"
             }
             
             payload = {
@@ -143,27 +150,68 @@ class LlamaCloudRetriever:
             }
             
             self.logger.info(f"Retrieving from LlamaCloud: {query[:50]}...")
-            print(f"DEBUG: Making request to {url}")
-            print(f"DEBUG: Headers: Authorization=Bearer {self.api_key[:10]}...")
-            print(f"DEBUG: Payload: {payload}")
             
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            last_error = None
             
-            print(f"DEBUG: Response status: {response.status_code}")
-            print(f"DEBUG: Response headers: {dict(response.headers)}")
+            for i, url in enumerate(endpoints_to_try):
+                try:
+                    print(f"DEBUG: Trying endpoint {i+1}/{len(endpoints_to_try)}: {url}")
+                    print(f"DEBUG: Headers: Authorization=Bearer {self.api_key[:10]}...")
+                    print(f"DEBUG: Payload: {payload}")
+                    
+                    # Увеличиваем таймаут и добавляем retry logic
+                    response = requests.post(
+                        url, 
+                        json=payload, 
+                        headers=headers, 
+                        timeout=60,  # Увеличили таймаут до 60 секунд
+                        verify=True  # Проверяем SSL сертификаты
+                    )
+                    
+                    print(f"DEBUG: Response status: {response.status_code}")
+                    print(f"DEBUG: Response headers: {dict(response.headers)}")
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        print(f"DEBUG: Response data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                        
+                        # Extract nodes from response
+                        nodes = data.get("nodes", [])
+                        if "retrieval_results" in data:
+                            nodes = data["retrieval_results"]
+                        elif "results" in data:
+                            nodes = data["results"]
+                        
+                        self.logger.info(f"Retrieved {len(nodes)} nodes from LlamaCloud")
+                        return nodes
+                    else:
+                        print(f"DEBUG: HTTP {response.status_code}: {response.text}")
+                        if i == len(endpoints_to_try) - 1:  # Last attempt
+                            response.raise_for_status()
+                        
+                except requests.exceptions.Timeout as e:
+                    last_error = f"Timeout error on endpoint {i+1}: {e}"
+                    print(f"DEBUG: {last_error}")
+                    if i == len(endpoints_to_try) - 1:
+                        raise
+                    continue
+                    
+                except requests.exceptions.ConnectionError as e:
+                    last_error = f"Connection error on endpoint {i+1}: {e}"
+                    print(f"DEBUG: {last_error}")
+                    if i == len(endpoints_to_try) - 1:
+                        raise
+                    continue
+                    
+                except requests.exceptions.RequestException as e:
+                    last_error = f"Request error on endpoint {i+1}: {e}"
+                    print(f"DEBUG: {last_error}")
+                    if i == len(endpoints_to_try) - 1:
+                        raise
+                    continue
             
-            if not response.ok:
-                print(f"DEBUG: Response text: {response.text}")
-                response.raise_for_status()
-            
-            data = response.json()
-            print(f"DEBUG: Response data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
-            
-            # Extract nodes from response
-            nodes = data.get("nodes", [])
-            self.logger.info(f"Retrieved {len(nodes)} nodes from LlamaCloud")
-            
-            return nodes
+            # If we get here, all endpoints failed
+            raise Exception(f"All endpoints failed. Last error: {last_error}")
             
         except requests.exceptions.RequestException as e:
             error_msg = f"LlamaCloud API error: {e}"
