@@ -133,7 +133,7 @@ class DeepAnalysis(BaseModel):
 class SummaryPoint(BaseModel):
     """Individual summary point"""
     point: str = Field(min_length=10)
-    importance: str = Field(regex="^(high|medium|low)$")
+    importance: str = Field(pattern="^(high|medium|low)$")
     details: Optional[str] = None
     source_reference: Optional[SourceReference] = None
 
@@ -152,7 +152,7 @@ class SummaryResponse(BaseModel):
 
 class StructuredResponse(BaseModel):
     """Generic structured response wrapper"""
-    response_type: str = Field(regex="^(facts|comparison|analysis|summary)$")
+    response_type: str = Field(pattern="^(facts|comparison|analysis|summary)$")
     content: Union[FactExtraction, ComparisonAnalysis, DeepAnalysis, SummaryResponse]
     raw_response: Optional[str] = None  # Original unstructured response
     processing_notes: Optional[str] = None
