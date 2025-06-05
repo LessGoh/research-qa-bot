@@ -12,10 +12,16 @@ from llama_index.core import StorageContext, load_index_from_storage
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.llms.openai import OpenAI
 
-from models import (
-    ResearchQuery, ResearchMode, ChatHistory, QueryResponse, 
-    ErrorResponse, ResearchModeType
-)
+try:
+    from models import (
+        ResearchQuery, ResearchMode, ChatHistory, QueryResponse, 
+        ErrorResponse, ResearchModeType
+    )
+except ImportError as e:
+    print(f"Import error: {e}")
+    # Fallback imports
+    from models.research_models import ResearchQuery, ResearchMode, ChatHistory, ResearchModeType
+    from models.response_schemas import QueryResponse, ErrorResponse
 from utils import config, get_logger, log_query, log_error, measure_time
 from .query_engine import ResearchQueryEngine
 from .chat_engine import ResearchChatEngine
